@@ -6,6 +6,10 @@ module ActiveRecord
 
     # TODO: add to list of reserved words to eliminate trouble-making state names
     RESERVED_WORDS = %w(new)
+    ERRORS = {
+      :illegal_transition => "cannot transition from %s state to %s state",
+      :illegal_event => "cannot transition from %s state on %s event"
+    }
     
     class StateMachine < Hash
       attr_reader :model, :column, :initial_state
@@ -32,22 +36,31 @@ module ActiveRecord
         end
         
         model.class_eval <<-TRANSITION, __FILE__, __LINE__
-          def #{event}_transition(method)
+          def #{event}_transition(raise_error = false)
             @from_state = self.#{column}
             @to_state = self.class.transitions_for('#{event}')[@from_state]
-            return unless @to_state
+            if ! @to_state
+              message = ERRORS[:illegal_event] % [ @from_state, '#{event}' ]
+              errors.add('#{column}', message)
+              raise(RuntimeError, "#{column} \#{message}") if raise_error
+              return false
+            end
             self.#{column} = @to_state
             begin
               @#{column}_transition = true
-              send(method)
+              if raise_error
+                save!
+              else
+                save
+              end
             ensure
               @#{column}_transition = false
             end
           end
           protected :#{event}_transition
         TRANSITION
-        model.class_eval "def #{event}; self.#{event}_transition(:save); end", __FILE__, __LINE__
-        model.class_eval "def #{event}!; self.#{event}_transition(:save!); end", __FILE__, __LINE__
+        model.class_eval "def #{event}; self.#{event}_transition; end", __FILE__, __LINE__
+        model.class_eval "def #{event}!; self.#{event}_transition(true); end", __FILE__, __LINE__
       end
     end
     
@@ -93,7 +106,7 @@ module ActiveRecord
             elsif #{column}_changed?
               @from_state = self.#{column}_was
               @to_state = self.#{column}
-              raise RuntimeError, "invalid transition for #{column} from #{@from_state} to #{@to_state}" unless self.class.state_machines['#{column}'][@from_state][@to_state]
+              raise(RuntimeError, "#{column} #{ERRORS[:illegal_transition]}" % [ @from_state, @to_state ]) unless self.class.state_machines['#{column}'][@from_state][@to_state]
               @#{column}_transition = true
             end
           end
