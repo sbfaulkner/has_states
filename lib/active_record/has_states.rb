@@ -8,11 +8,12 @@ module ActiveRecord
     RESERVED_WORDS = %w(new)
     
     class StateMachine < Hash
-      attr_reader :model, :column
+      attr_reader :model, :column, :initial_state
       
-      def initialize(model, column)
+      def initialize(model, column, initial_state)
         @model = model
         @column =  column
+        @initial_state = initial_state
       end
 
       def transition(transitions)
@@ -55,60 +56,55 @@ module ActiveRecord
         include InstanceMethods unless self.respond_to?(:state_machines)
 
         options = names.extract_options!
-        column = options[:in] || 'state'
-        state_machine = state_machine_for(column.to_s)
-
-        names = names.collect { |n| n.to_s }
-        reserved = names & RESERVED_WORDS
+        column = (options[:in] || 'state').to_s
+        states = names.collect(&:to_s)
+        reserved = states & RESERVED_WORDS
+        
         if reserved.size == 1
           raise ArgumentError, "#{reserved.to_sentence} is a reserved word"
         elsif reserved.size > 1
           raise ArgumentError, "#{reserved.to_sentence} are reserved words"
         end
+
+        initial_state = states.first
+
+        state_machine = state_machines[column] = StateMachine.new(self, column, initial_state)
         
-        names.each do |name|
+        states.each do |name|
           state_machine[name] = {}
           class_eval "def #{name}?; #{column} == '#{name}'; end", __FILE__, __LINE__
           class_eval "named_scope :#{name}, :conditions => { :#{column} => '#{name}' }", __FILE__, __LINE__
           define_callbacks "before_exit_#{name}", "after_exit_#{name}", "before_enter_#{name}", "after_enter_#{name}"
         end
         
-        initial_state = names.first
-        
         class_eval <<-INITIALIZE, __FILE__, __LINE__
-          before_create :before_initial_#{column}
-          after_create :after_initial_#{column}
-          
-          def before_initial_#{column}
-            self.#{column} = '#{initial_state}' if self.#{column}.blank?
-            errors.add("#{column}", "does not have initial value of #{initial_state}") and return false unless #{column} == '#{initial_state}'
-            callback("before_enter_#{initial_state}")
-          end
-          protected :before_initial_#{column}
-          
-          def after_initial_#{column}
-            callback("after_enter_#{initial_state}")
-          end
-          protected :after_initial_#{column}
+          before_validation_on_create { |record| record.#{column} = '#{initial_state}' if record.#{column}.blank? }
+          validates_inclusion_of :#{column}, :in => %w(#{initial_state}), :on => :create, :message => "should not have an initial state of %s"
+          validates_inclusion_of :#{column}, :in => %w(#{states.join(' ')}), :on => :update
         INITIALIZE
 
         class_eval <<-HOOK, __FILE__, __LINE__
           def detect_transition
-            @#{column}_transition ||=  if #{column}_changed?
+            return true if @#{column}_transition
+            if new_record?
+              @from_state = nil
+              @to_state = self.#{column}
+              @#{column}_transition = true
+            elsif #{column}_changed?
               @from_state = self.#{column}_was
               @to_state = self.#{column}
-              raise RuntimeError, "invalid transition for #{column} from #{@from_state} to #{@to_state}" unless self.class.state_machine_for('#{column}')[@from_state][@to_state]
-              true
+              raise RuntimeError, "invalid transition for #{column} from #{@from_state} to #{@to_state}" unless self.class.state_machines['#{column}'][@from_state][@to_state]
+              @#{column}_transition = true
             end
           end
           protected :detect_transition
           
           def create_or_update_without_callbacks
             return super unless detect_transition
-            callback("before_exit_\#{@from_state}")
+            callback("before_exit_\#{@from_state}") unless @from_state.nil?
             callback("before_enter_\#{@to_state}")
             result = super
-            callback("after_exit_\#{@from_state}")
+            callback("after_exit_\#{@from_state}") unless @from_state.nil?
             callback("after_enter_\#{@to_state}")
             result
           end
@@ -126,10 +122,6 @@ module ActiveRecord
         module ClassMethods
           def state_machines
             @state_machines ||= {}
-          end
-
-          def state_machine_for(column)
-            state_machines[column] ||= StateMachine.new(self, column)
           end
           
           def transitions
