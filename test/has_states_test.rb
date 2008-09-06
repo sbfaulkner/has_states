@@ -36,6 +36,7 @@ protected
         t.column :other_state, :string
         t.column :problem, :string
         t.column :resolution, :string
+        t.column :assigned_to, :string
       end
     end
   ensure  
@@ -60,11 +61,19 @@ class Ticket < ActiveRecord::Base
 end
 
 class TicketWithState < Ticket 
-  has_states :open, :ignored, :active, :abandoned, :resolved
+  has_states :open, :ignored, :active, :abandoned, :resolved do
+    transition :open => :ignored, :as => :ignore
+    transition :open => :active, :as => :activate
+    transition :active => :abandoned, :as => :abandon
+    transition :active => :resolved, :as => :resolve
+  end
 end
 
 class TicketWithOtherState < Ticket
-  has_states :unassigned, :assigned, :in => :other_state
+  has_states :unassigned, :assigned, :in => :other_state do
+    transition :unassigned => :assigned, :as => :assign
+    transition :assigned => :unassigned, :as => :unassign
+  end
 end
 
 class TicketWithConcurrentStates < Ticket
@@ -117,6 +126,41 @@ class StateTest < Test::Unit::TestCase
     assert_not_nil ticket
     assert ticket.new_record?
     assert_not_nil ticket.errors.on(:state)
+  end
+  
+  def test_should_transition
+    ticket = create(TicketWithState)
+    assert ticket.open?
+    assert ticket.ignore
+    assert ticket.ignored?
+    assert ticket.reload.ignored?
+  end
+  
+  def test_should_prevent_invalid_transition
+    ticket = create(TicketWithState)
+    assert ticket.open?
+    assert ! ticket.resolve
+    assert ! ticket.resolved?
+    assert_not_nil ticket.errors.on(:state)
+    assert ! ticket.reload.resolved?
+    assert ticket.open?
+  end
+  
+  def test_should_detect_transition
+    ticket = create(TicketWithState)
+    assert ticket.open?
+    assert ticket.update_attributes(:state => 'active')
+    assert ticket.active?
+    assert ticket.reload.active?
+  end
+  
+  def test_should_detect_invalid_transition
+    ticket = create(TicketWithState)
+    assert ticket.open?
+    assert ! ticket.update_attributes(:state => 'abandoned')
+    assert_not_nil ticket.errors.on(:state)
+    assert ! ticket.reload.active?
+    assert ticket.open?
   end
 end
 
