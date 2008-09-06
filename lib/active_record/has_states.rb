@@ -11,6 +11,10 @@ module ActiveRecord
       :illegal_event => "cannot transition from %s state on %s event"
     }
     
+    class StateError < StandardError; end
+    class IllegalTransitionError < RecordInvalid; end
+    class IllegalEventError < RecordInvalid; end
+    
     class StateMachine < Hash
       attr_reader :model, :column, :initial_state
       
@@ -42,7 +46,7 @@ module ActiveRecord
             if ! @to_state
               message = ERRORS[:illegal_event] % [ @from_state, '#{event}' ]
               errors.add('#{column}', message)
-              raise(RuntimeError, "#{column} \#{message}") if raise_error
+              raise(IllegalEventError, self) if raise_error
               return false
             end
             self.#{column} = @to_state
@@ -102,12 +106,14 @@ module ActiveRecord
             if new_record?
               @from_state = nil
               @to_state = self.#{column}
-              @#{column}_transition = true
+              true
             elsif #{column}_changed?
               @from_state = self.#{column}_was
               @to_state = self.#{column}
-              raise(RuntimeError, "#{column} #{ERRORS[:illegal_transition]}" % [ @from_state, @to_state ]) unless self.class.state_machines['#{column}'][@from_state][@to_state]
-              @#{column}_transition = true
+              message = ERRORS[:illegal_transition] % [ @from_state, @to_state]
+              errors.add('#{column}', message)
+              raise(IllegalTransitionError, self) unless self.class.state_machines['#{column}'][@from_state][@to_state]
+              true
             end
           end
           protected :detect_transition

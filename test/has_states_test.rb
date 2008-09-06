@@ -149,7 +149,7 @@ class StateTest < Test::Unit::TestCase
   def test_should_prevent_invalid_transition_and_raise_error
     ticket = create(TicketWithState)
     assert ticket.open?
-    assert_raises(RuntimeError) do
+    assert_raises(ActiveRecord::HasStates::IllegalEventError) do
       ticket.resolve!
     end
     assert ! ticket.resolved?
@@ -169,6 +169,7 @@ class StateTest < Test::Unit::TestCase
   def test_should_detect_invalid_transition
     ticket = create(TicketWithState)
     assert ticket.open?
+    # TODO: in order to not cack out it will need to be dealt with in validations instead of raising it ourselves
     assert ! ticket.update_attributes(:state => 'abandoned')
     assert_not_nil ticket.errors.on(:state)
     assert ! ticket.reload.active?
@@ -178,7 +179,7 @@ class StateTest < Test::Unit::TestCase
   def test_should_detect_invalid_transition_and_raise_error
     ticket = create(TicketWithState)
     assert ticket.open?
-    assert_raises(RuntimeError) do
+    assert_raises(ActiveRecord::HasStates::IllegalTransitionError) do
       ticket.update_attributes!(:state => 'abandoned')
     end
     assert_not_nil ticket.errors.on(:state)
