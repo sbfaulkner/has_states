@@ -146,6 +146,18 @@ class StateTest < Test::Unit::TestCase
     assert ticket.open?
   end
   
+  def test_should_prevent_invalid_transition_and_raise_error
+    ticket = create(TicketWithState)
+    assert ticket.open?
+    assert_raises(RuntimeError) do
+      ticket.resolve!
+    end
+    assert ! ticket.resolved?
+    assert_not_nil ticket.errors.on(:state)
+    assert ! ticket.reload.resolved?
+    assert ticket.open?
+  end
+  
   def test_should_detect_transition
     ticket = create(TicketWithState)
     assert ticket.open?
@@ -158,6 +170,17 @@ class StateTest < Test::Unit::TestCase
     ticket = create(TicketWithState)
     assert ticket.open?
     assert ! ticket.update_attributes(:state => 'abandoned')
+    assert_not_nil ticket.errors.on(:state)
+    assert ! ticket.reload.active?
+    assert ticket.open?
+  end
+  
+  def test_should_detect_invalid_transition_and_raise_error
+    ticket = create(TicketWithState)
+    assert ticket.open?
+    assert_raises(RuntimeError) do
+      ticket.update_attributes!(:state => 'abandoned')
+    end
     assert_not_nil ticket.errors.on(:state)
     assert ! ticket.reload.active?
     assert ticket.open?
