@@ -100,6 +100,7 @@ module ActiveRecord
 
           @transitions[from] ||= []
           @transitions[from] << Transition.new(from, to, guard)
+        end
 
         class Transition
           attr_reader :to_state

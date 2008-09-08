@@ -208,6 +208,16 @@ class StateTest < Test::Unit::TestCase
     assert ! ticket.reload.resolved?
     assert ticket.open?
   end
+
+  def test_should_detect_event_conflict
+    ticket = create(TicketWithState)
+    assert ticket.open?
+    ticket.state = 'active'
+    assert ! ticket.ignore, ticket.errors.full_messages.to_sentence
+    assert ! ticket.ignored?
+    assert ! ticket.reload.ignored?
+    assert ticket.open?
+  end
   
   def test_should_detect_transition
     ticket = create(TicketWithState)
