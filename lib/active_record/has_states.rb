@@ -41,6 +41,32 @@ module ActiveRecord
         @model.class_eval %Q(before_validation_on_create { |record| record.#{@column_name} = '#{@state_names.first}' if record.#{@column_name}.blank? }), __FILE__, __LINE__
         @model.class_eval %Q(validates_state_of :#{@column_name}), __FILE__, __LINE__
 
+        @model.class_eval <<-TRANSITIONS
+          def create_or_update_without_callbacks_with_#{@column_name}_transitions
+            return create_or_update_without_callbacks_without_#{@column_name}_transitions unless #{@column_name}_changed?
+            from = #{@column_name}_was
+            to = #{@column_name}
+            callback("before_exit_\#{from}") unless from.nil?
+            callback("before_enter_\#{to}")
+            result = create_or_update_without_callbacks_without_#{@column_name}_transitions
+            callback("after_exit_\#{from}") unless from.nil?
+            callback("after_enter_\#{to}")
+            result 
+          end
+          
+          alias_method_chain :create_or_update_without_callbacks, :#{@column_name}_transitions
+        TRANSITIONS
+        
+        #           def create_or_update_without_callbacks
+        #             return super unless detect_transition
+        #             callback("before_exit_\#{@from_state}") unless @from_state.nil?
+        #             callback("before_enter_\#{@to_state}")
+        #             result = super
+        #             callback("after_exit_\#{@from_state}") unless @from_state.nil?
+        #             callback("after_enter_\#{@to_state}")
+        #             result
+        #           end
+
         self.instance_eval(&block) if block_given?
       end
 
@@ -135,40 +161,6 @@ module ActiveRecord
         state_column = options[:in] || 'state'
 
         StateMachine.new(self, state_column, state_names, &block)
-
-#         class_eval <<-HOOK, __FILE__, __LINE__
-#           def detect_transitions
-#             transitions = []
-#             transitions = @current_event ? self.class.transitions_for(@current_event)[self.#{column}] 
-#             @from_state = self.#{column}
-#             @to_state = self.class.transitions_for('#{event}')[@from_state]
-#             return true if @#{column}_transition
-#             if new_record?
-#               @from_state = nil
-#               @to_state = self.#{column}
-#               true
-#             elsif #{column}_changed?
-#               @from_state = self.#{column}_was
-#               @to_state = self.#{column}
-#               # message = ERRORS[:bad_transition] % [ @from_state, @to_state]
-#               # errors.add('#{column}', message)
-#               # raise(IllegalTransitionError, self) unless self.class.state_machines['#{column}'][@from_state][@to_state]
-#               true
-#             end
-#           end
-#           protected :detect_transition
-#           
-#           def create_or_update_without_callbacks
-#             return super unless detect_transition
-#             callback("before_exit_\#{@from_state}") unless @from_state.nil?
-#             callback("before_enter_\#{@to_state}")
-#             result = super
-#             callback("after_exit_\#{@from_state}") unless @from_state.nil?
-#             callback("after_enter_\#{@to_state}")
-#             result
-#           end
-#           protected :create_or_update_without_callbacks
-#         HOOK
       end
       
       module InstanceMethods

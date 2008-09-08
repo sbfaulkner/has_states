@@ -29,6 +29,10 @@ class Test::Unit::TestCase
     assert_in_state(record.reload, attr_name, from, "state should not have transitioned from #{from} to #{record.send(attr_name)}")
   end
   
+  def assert_includes(enum, value)
+    assert enum.include?(value), "should include #{value}"
+  end
+  
   # def assert_queries(num = 1)
   #   $query_count = 0
   #   yield
@@ -94,6 +98,10 @@ class TicketWithState < Ticket
     event :resolve do
       transition :from => :active, :to => :resolved
     end
+    event :reactivate do
+      transition :from => :resolved, :to => :active
+      transition :from => :abandoned, :to => :active
+    end
   end
 end
 
@@ -122,7 +130,12 @@ class TicketWithConcurrentStates < Ticket
     event :resolve do
       transition :from => :active, :to => :resolved
     end
+    event :reactivate do
+      transition :from => :resolved, :to => :active
+      transition :from => :abandoned, :to => :active
+    end
   end
+
   has_states :unassigned, :assigned, :in => :other_state do
     event :assign do
       transition :from => :unassigned, :to => :assigned
@@ -146,6 +159,56 @@ class TicketWithGuardedState < Ticket
   end
   def second?
     second
+  end
+end
+
+class TicketWithCallbacks < Ticket
+  attr_reader :callbacks_made
+  
+  has_states :open, :ignored, :active, :abandoned, :resolved do
+    event :ignore do
+      transition :from => :open, :to => :ignored
+    end
+    event :activate do
+      transition :from => :open, :to => :active
+    end
+    event :abandon do
+      transition :from => :active, :to => :abandoned
+    end
+    event :resolve do
+      transition :from => :active, :to => :resolved
+    end
+    event :reactivate do
+      transition :from => :resolved, :to => :active
+      transition :from => :abandoned, :to => :active
+    end
+  end
+
+  before_exit_abandoned :will_not_be_abandoned
+  before_enter_ignored :will_be_ignored
+  after_exit_resolved :is_not_resolved
+  after_enter_resolved :is_resolved
+
+protected
+  def remember_callback(which)
+    @callbacks_made ||= {}
+    @callbacks_made.merge!(which => self.dup)
+  end
+
+  def will_not_be_abandoned
+    remember_callback(:will_not_be_abandoned)
+  end
+
+  def will_be_ignored
+    remember_callback(:will_be_ignored)
+  end
+
+  def is_not_resolved
+    remember_callback(:is_not_resolved)
+  end
+
+  def is_resolved
+    remember_callback(:is_resolved)
   end
 end
 
@@ -295,6 +358,55 @@ class StateTest < Test::Unit::TestCase
       end
     end
     assert_not_nil ticket.errors.on(:state)
+  end
+  
+  # before_exit_abandoned :will_not_be_abandoned
+  # before_enter_ignored :will_be_ignored
+  # after_exit_resolved :is_not_resolved
+  # after_enter_resolved :is_resolved
+  
+  def test_should_callback_before_exit
+    ticket = create(TicketWithCallbacks)
+    assert ticket.activate, ticket.errors.full_messages.to_sentence
+    assert ticket.callbacks_made.blank?
+    assert ticket.abandon, ticket.errors.full_messages.to_sentence
+    assert ticket.callbacks_made.blank?
+    assert ticket.reactivate, ticket.errors.full_messages.to_sentence
+    assert ! ticket.callbacks_made.blank?
+    assert ticket.callbacks_made.size == 1
+    assert_includes ticket.callbacks_made, :will_not_be_abandoned
+  end
+  
+  def test_should_callback_before_enter
+    ticket = create(TicketWithCallbacks)
+    assert ticket.ignore, ticket.errors.full_messages.to_sentence
+    assert ! ticket.callbacks_made.blank?
+    assert ticket.callbacks_made.size == 1
+    assert_includes ticket.callbacks_made, :will_be_ignored
+  end
+  
+  def test_should_callback_after_exit
+    ticket = create(TicketWithCallbacks)
+    assert ticket.activate, ticket.errors.full_messages.to_sentence
+    assert ticket.callbacks_made.blank?
+    assert ticket.resolve, ticket.errors.full_messages.to_sentence
+    assert !ticket.callbacks_made.blank?
+    assert_includes ticket.callbacks_made, :is_resolved
+    assert ticket.reactivate, ticket.errors.full_messages.to_sentence
+    assert ! ticket.callbacks_made.blank?
+    assert ticket.callbacks_made.size == 2
+    assert_includes ticket.callbacks_made, :is_not_resolved
+    assert_includes ticket.callbacks_made, :is_resolved
+  end
+  
+  def test_should_callback_after_enter
+    ticket = create(TicketWithCallbacks)
+    assert ticket.activate, ticket.errors.full_messages.to_sentence
+    assert ticket.callbacks_made.blank?
+    assert ticket.resolve, ticket.errors.full_messages.to_sentence
+    assert ! ticket.callbacks_made.blank?
+    assert ticket.callbacks_made.size == 1
+    assert_includes ticket.callbacks_made, :is_resolved
   end
 end
 
