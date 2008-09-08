@@ -62,23 +62,55 @@ end
 
 class TicketWithState < Ticket 
   has_states :open, :ignored, :active, :abandoned, :resolved do
-    transition :open => :ignored, :as => :ignore
-    transition :open => :active, :as => :activate
-    transition :active => :abandoned, :as => :abandon
-    transition :active => :resolved, :as => :resolve
+    event :ignore do
+      transition :open => :ignored
+    end
+    event :activate do
+      transition :open => :active
+    end
+    event :abandon do
+      transition :active => :abandoned
+    end
+    event :resolve do
+      transition :active => :resolved
+    end
   end
 end
 
 class TicketWithOtherState < Ticket
   has_states :unassigned, :assigned, :in => :other_state do
-    transition :unassigned => :assigned, :as => :assign
-    transition :assigned => :unassigned, :as => :unassign
+    event :assign do
+      transition :unassigned => :assigned
+    end
+    event :unassign do
+      transition :assigned => :unassigned
+    end
   end
 end
 
 class TicketWithConcurrentStates < Ticket
-  has_states :open, :ignored, :active, :abandoned, :resolved
-  has_states :unassigned, :assigned, :in => :other_state
+  has_states :open, :ignored, :active, :abandoned, :resolved do
+    event :ignore do
+      transition :open => :ignored
+    end
+    event :activate do
+      transition :open => :active
+    end
+    event :abandon do
+      transition :active => :abandoned
+    end
+    event :resolve do
+      transition :active => :resolved
+    end
+  end
+  has_states :unassigned, :assigned, :in => :other_state do
+    event :assign do
+      transition :unassigned => :assigned
+    end
+    event :unassign do
+      transition :assigned => :unassigned
+    end
+  end
 end
 
 class BaseTest < Test::Unit::TestCase
@@ -149,7 +181,7 @@ class StateTest < Test::Unit::TestCase
   def test_should_prevent_invalid_transition_and_raise_error
     ticket = create(TicketWithState)
     assert ticket.open?
-    assert_raises(ActiveRecord::HasStates::IllegalEventError) do
+    assert_raises(ActiveRecord::RecordInvalid) do
       ticket.resolve!
     end
     assert ! ticket.resolved?
@@ -179,7 +211,7 @@ class StateTest < Test::Unit::TestCase
   def test_should_detect_invalid_transition_and_raise_error
     ticket = create(TicketWithState)
     assert ticket.open?
-    assert_raises(ActiveRecord::HasStates::IllegalTransitionError) do
+    assert_raises(ActiveRecord::RecordInvalid) do
       ticket.update_attributes!(:state => 'abandoned')
     end
     assert_not_nil ticket.errors.on(:state)
