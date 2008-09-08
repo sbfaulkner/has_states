@@ -43,29 +43,20 @@ module ActiveRecord
 
         @model.class_eval <<-TRANSITIONS
           def create_or_update_without_callbacks_with_#{@column_name}_transitions
-            return create_or_update_without_callbacks_without_#{@column_name}_transitions unless #{@column_name}_changed?
+            new_record = new_record?
+            return create_or_update_without_callbacks_without_#{@column_name}_transitions unless new_record || #{@column_name}_changed?
             from = #{@column_name}_was
             to = #{@column_name}
-            callback("before_exit_\#{from}") unless from.nil?
+            callback("before_exit_\#{from}") unless new_record
             callback("before_enter_\#{to}")
             result = create_or_update_without_callbacks_without_#{@column_name}_transitions
-            callback("after_exit_\#{from}") unless from.nil?
+            callback("after_exit_\#{from}") unless new_record
             callback("after_enter_\#{to}")
             result 
           end
           
           alias_method_chain :create_or_update_without_callbacks, :#{@column_name}_transitions
         TRANSITIONS
-        
-        #           def create_or_update_without_callbacks
-        #             return super unless detect_transition
-        #             callback("before_exit_\#{@from_state}") unless @from_state.nil?
-        #             callback("before_enter_\#{@to_state}")
-        #             result = super
-        #             callback("after_exit_\#{@from_state}") unless @from_state.nil?
-        #             callback("after_enter_\#{@to_state}")
-        #             result
-        #           end
 
         self.instance_eval(&block) if block_given?
       end
@@ -225,7 +216,7 @@ module ActiveRecord
                   record.errors.add(attr_name, bad_transition % [from, to]) unless state_machine.transition?(from, to)
                 end
               else
-                record.errors.add(attr_name, bad_state % to)
+                record.errors.add(attr_name, bad_state % state)
               end
             end
           end

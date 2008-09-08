@@ -56,7 +56,7 @@ protected
     ActiveRecord::Schema.define(:version => 1) do
       create_table :tickets do |t|
         t.column :type, :string
-        t.column :state, :string
+        t.column :state, :string, :default => 'open'
         t.column :other_state, :string
         t.column :problem, :string
         t.column :resolution, :string
@@ -188,6 +188,7 @@ class TicketWithCallbacks < Ticket
     end
   end
 
+  after_enter_open :is_open
   before_exit_abandoned :will_not_be_abandoned
   before_enter_ignored :will_be_ignored
   after_exit_resolved :is_not_resolved
@@ -199,6 +200,10 @@ protected
     @callbacks_made.merge!(which => self.dup)
   end
 
+  def is_open
+    remember_callback(:is_open)
+  end
+  
   def will_not_be_abandoned
     remember_callback(:will_not_be_abandoned)
   end
@@ -318,28 +323,32 @@ class StateTest < Test::Unit::TestCase
   end
 
   def test_should_use_first_transition
-    ticket = create(TicketWithGuardedState, :first => true)
+    ticket = create(TicketWithGuardedState, :state => 'zero', :first => true)
+    assert ! ticket.new_record?, ticket.errors.full_messages.to_sentence
     assert_transition(ticket, :state, :zero, :one) do
       assert ticket.test, ticket.errors.full_messages.to_sentence
     end
   end
   
   def test_should_use_second_transition
-    ticket = create(TicketWithGuardedState, :second => true, :third => true)
+    ticket = create(TicketWithGuardedState, :state => 'zero', :second => true, :third => true)
+    assert ! ticket.new_record?, ticket.errors.full_messages.to_sentence
     assert_transition(ticket, :state, :zero, :two) do
       assert ticket.test, ticket.errors.full_messages.to_sentence
     end
   end
   
   def test_should_use_third_transition
-    ticket = create(TicketWithGuardedState, :third => true)
+    ticket = create(TicketWithGuardedState, :state => 'zero', :third => true)
+    assert ! ticket.new_record?, ticket.errors.full_messages.to_sentence
     assert_transition(ticket, :state, :zero, :three) do
       assert ticket.test, ticket.errors.full_messages.to_sentence
     end
   end
   
   def test_should_fail_to_transition
-    ticket = create(TicketWithGuardedState)
+    ticket = create(TicketWithGuardedState, :state => 'zero')
+    assert ! ticket.new_record?, ticket.errors.full_messages.to_sentence
     assert_no_transition(ticket, :state) do
       assert ! ticket.test
     end
@@ -371,52 +380,55 @@ class StateTest < Test::Unit::TestCase
     assert_not_nil ticket.errors.on(:state)
   end
   
-  # before_exit_abandoned :will_not_be_abandoned
-  # before_enter_ignored :will_be_ignored
-  # after_exit_resolved :is_not_resolved
-  # after_enter_resolved :is_resolved
-  
   def test_should_callback_before_exit
     ticket = create(TicketWithCallbacks)
-    assert ticket.activate, ticket.errors.full_messages.to_sentence
-    assert ticket.callbacks_made.blank?
-    assert ticket.abandon, ticket.errors.full_messages.to_sentence
-    assert ticket.callbacks_made.blank?
-    assert ticket.reactivate, ticket.errors.full_messages.to_sentence
     assert ! ticket.callbacks_made.blank?
-    assert ticket.callbacks_made.size == 1
+    assert_equal 1, ticket.callbacks_made.size
+    assert_includes ticket.callbacks_made, :is_open
+    assert ticket.activate, ticket.errors.full_messages.to_sentence
+    assert_equal 1, ticket.callbacks_made.size
+    assert ticket.abandon, ticket.errors.full_messages.to_sentence
+    assert_equal 1, ticket.callbacks_made.size
+    assert ticket.reactivate, ticket.errors.full_messages.to_sentence
+    assert_equal 2, ticket.callbacks_made.size
     assert_includes ticket.callbacks_made, :will_not_be_abandoned
   end
   
   def test_should_callback_before_enter
     ticket = create(TicketWithCallbacks)
-    assert ticket.ignore, ticket.errors.full_messages.to_sentence
     assert ! ticket.callbacks_made.blank?
-    assert ticket.callbacks_made.size == 1
+    assert_equal 1, ticket.callbacks_made.size
+    assert_includes ticket.callbacks_made, :is_open
+    assert ticket.ignore, ticket.errors.full_messages.to_sentence
+    assert_equal 2, ticket.callbacks_made.size
     assert_includes ticket.callbacks_made, :will_be_ignored
   end
   
   def test_should_callback_after_exit
     ticket = create(TicketWithCallbacks)
+    assert ! ticket.callbacks_made.blank?
+    assert_equal 1, ticket.callbacks_made.size
+    assert_includes ticket.callbacks_made, :is_open
     assert ticket.activate, ticket.errors.full_messages.to_sentence
-    assert ticket.callbacks_made.blank?
+    assert_equal 1, ticket.callbacks_made.size
     assert ticket.resolve, ticket.errors.full_messages.to_sentence
-    assert !ticket.callbacks_made.blank?
+    assert_equal 2, ticket.callbacks_made.size
     assert_includes ticket.callbacks_made, :is_resolved
     assert ticket.reactivate, ticket.errors.full_messages.to_sentence
-    assert ! ticket.callbacks_made.blank?
-    assert ticket.callbacks_made.size == 2
+    assert_equal 3, ticket.callbacks_made.size
     assert_includes ticket.callbacks_made, :is_not_resolved
     assert_includes ticket.callbacks_made, :is_resolved
   end
   
   def test_should_callback_after_enter
     ticket = create(TicketWithCallbacks)
-    assert ticket.activate, ticket.errors.full_messages.to_sentence
-    assert ticket.callbacks_made.blank?
-    assert ticket.resolve, ticket.errors.full_messages.to_sentence
     assert ! ticket.callbacks_made.blank?
-    assert ticket.callbacks_made.size == 1
+    assert_equal 1, ticket.callbacks_made.size
+    assert_includes ticket.callbacks_made, :is_open
+    assert ticket.activate, ticket.errors.full_messages.to_sentence
+    assert_equal 1, ticket.callbacks_made.size
+    assert ticket.resolve, ticket.errors.full_messages.to_sentence
+    assert_equal 2, ticket.callbacks_made.size
     assert_includes ticket.callbacks_made, :is_resolved
   end
 end
