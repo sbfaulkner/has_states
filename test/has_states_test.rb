@@ -147,11 +147,12 @@ class TicketWithConcurrentStates < Ticket
 end
 
 class TicketWithGuardedState < Ticket
-  attr_accessor :first, :second
-  has_states :zero, :one, :two do
+  attr_accessor :first, :second, :third
+  has_states :zero, :one, :two, :three do
     event :test do
-      transition :from => :zero, :to => :one, :guard => :first?
+      transition :from => :zero, :to => :one, :guard => Proc.new { |record| record.first? }
       transition :from => :zero, :to => :two, :guard => :second?
+      transition :from => :zero, :to => :three, :guard => "third?"
     end
   end
   def first?
@@ -159,6 +160,9 @@ class TicketWithGuardedState < Ticket
   end
   def second?
     second
+  end
+  def third?
+    third
   end
 end
 
@@ -321,8 +325,15 @@ class StateTest < Test::Unit::TestCase
   end
   
   def test_should_use_second_transition
-    ticket = create(TicketWithGuardedState, :second => true)
+    ticket = create(TicketWithGuardedState, :second => true, :third => true)
     assert_transition(ticket, :state, :zero, :two) do
+      assert ticket.test, ticket.errors.full_messages.to_sentence
+    end
+  end
+  
+  def test_should_use_third_transition
+    ticket = create(TicketWithGuardedState, :third => true)
+    assert_transition(ticket, :state, :zero, :three) do
       assert ticket.test, ticket.errors.full_messages.to_sentence
     end
   end
