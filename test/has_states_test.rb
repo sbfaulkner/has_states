@@ -9,6 +9,26 @@ require 'active_record/has_states'
 require File.dirname(__FILE__) + '/../init'
 
 class Test::Unit::TestCase
+  def assert_in_state(record, attr_name, state, message = nil)
+    assert record.send("#{state}?"), message || "state should be #{state} instead of #{record.send(attr_name)}"
+  end
+  
+  def assert_not_in_state(record, attr_name, *states)
+    assert ! states.any? { |state| record.send("#{state}?") }, "state should not be #{record.send(attr_name)}"
+  end
+  
+  def assert_transition(record, attr_name, from, to)
+    assert_in_state(record, attr_name, from)
+    yield
+    assert_in_state(record, attr_name, to, "state should have transitioned to #{to} instead of #{record.send(attr_name)}")
+  end
+  
+  def assert_no_transition(record, attr_name)
+    from = record.send(attr_name)
+    yield
+    assert_in_state(record.reload, attr_name, from, "state should not have transitioned from #{from} to #{record.send(attr_name)}")
+  end
+  
   # def assert_queries(num = 1)
   #   $query_count = 0
   #   yield
@@ -113,6 +133,22 @@ class TicketWithConcurrentStates < Ticket
   end
 end
 
+class TicketWithGuardedState < Ticket
+  attr_accessor :first, :second
+  has_states :zero, :one, :two do
+    event :test do
+      transition :from => :zero, :to => :one, :guard => :first?
+      transition :from => :zero, :to => :two, :guard => :second?
+    end
+  end
+  def first?
+    first
+  end
+  def second?
+    second
+  end
+end
+
 class BaseTest < Test::Unit::TestCase
   def setup
     setup_db
@@ -161,8 +197,8 @@ class StateTest < Test::Unit::TestCase
     ticket = create(TicketWithState)
     assert_not_nil ticket
     assert ! ticket.new_record?, ticket.errors.full_messages.to_sentence
-    assert ticket.open?
-    assert ! (ticket.ignored? || ticket.active? || ticket.abandoned? || ticket.resolved?)
+    assert_in_state(ticket, :state, :open)
+    assert_not_in_state(ticket, :state, :ignored, :active, :abandoned, :resolved)
   end
   
   def test_should_not_create_with_incorrect_state
@@ -170,6 +206,7 @@ class StateTest < Test::Unit::TestCase
     assert_not_nil ticket
     assert ticket.new_record?
     assert_not_nil ticket.errors.on(:state)
+    assert_not_in_state(ticket, :state, :resolved)
   end
   
   def test_should_not_create_with_invalid_state
@@ -181,71 +218,83 @@ class StateTest < Test::Unit::TestCase
   
   def test_should_transition
     ticket = create(TicketWithState)
-    assert ticket.open?
-    assert ticket.ignore, ticket.errors.full_messages.to_sentence
-    assert ticket.ignored?
-    assert ticket.reload.ignored?
+    assert_transition(ticket, :state, :open, :ignored) do
+      assert ticket.ignore, ticket.errors.full_messages.to_sentence
+    end
   end
   
   def test_should_prevent_invalid_transition
     ticket = create(TicketWithState)
-    assert ticket.open?
-    assert ! ticket.resolve
-    assert ! ticket.resolved?
+    assert_no_transition(ticket, :state) do
+      assert ! ticket.resolve
+    end
     assert_not_nil ticket.errors.on(:state)
-    assert ! ticket.reload.resolved?
-    assert ticket.open?
   end
   
   def test_should_prevent_invalid_transition_and_raise_error
     ticket = create(TicketWithState)
-    assert ticket.open?
-    assert_raises(ActiveRecord::RecordInvalid) do
-      ticket.resolve!
+    assert_no_transition(ticket, :state) do
+      assert_raises(ActiveRecord::RecordInvalid) do
+        ticket.resolve!
+      end
     end
-    assert ! ticket.resolved?
     assert_not_nil ticket.errors.on(:state)
-    assert ! ticket.reload.resolved?
-    assert ticket.open?
   end
 
   def test_should_detect_event_conflict
     ticket = create(TicketWithState)
-    assert ticket.open?
-    ticket.state = 'active'
-    assert ! ticket.ignore, ticket.errors.full_messages.to_sentence
-    assert ! ticket.ignored?
-    assert ! ticket.reload.ignored?
-    assert ticket.open?
+    assert_no_transition(ticket, :state) do
+      ticket.state = 'active'
+      assert ! ticket.ignore
+    end
+    assert_not_nil ticket.errors.on(:state)
+  end
+
+  def test_should_use_first_transition
+    ticket = create(TicketWithGuardedState, :first => true)
+    assert_transition(ticket, :state, :zero, :one) do
+      assert ticket.test, ticket.errors.full_messages.to_sentence
+    end
+  end
+  
+  def test_should_use_second_transition
+    ticket = create(TicketWithGuardedState, :second => true)
+    assert_transition(ticket, :state, :zero, :two) do
+      assert ticket.test, ticket.errors.full_messages.to_sentence
+    end
+  end
+  
+  def test_should_fail_to_transition
+    ticket = create(TicketWithGuardedState)
+    assert_no_transition(ticket, :state) do
+      assert ! ticket.test
+    end
+    assert_not_nil ticket.errors.on(:state)
   end
   
   def test_should_detect_transition
     ticket = create(TicketWithState)
-    assert ticket.open?
-    assert ticket.update_attributes(:state => 'active')
-    assert ticket.active?
-    assert ticket.reload.active?
+    assert_transition(ticket, :state, :open, :active) do
+      assert ticket.update_attributes(:state => 'active')
+    end
   end
   
   def test_should_detect_invalid_transition
     ticket = create(TicketWithState)
-    assert ticket.open?
-    # TODO: in order to not cack out it will need to be dealt with in validations instead of raising it ourselves
-    assert ! ticket.update_attributes(:state => 'abandoned')
+    assert_no_transition(ticket, :state) do
+      assert ! ticket.update_attributes(:state => 'abandoned')
+    end
     assert_not_nil ticket.errors.on(:state)
-    assert ! ticket.reload.active?
-    assert ticket.open?
   end
   
   def test_should_detect_invalid_transition_and_raise_error
     ticket = create(TicketWithState)
-    assert ticket.open?
-    assert_raises(ActiveRecord::RecordInvalid) do
-      ticket.update_attributes!(:state => 'abandoned')
+    assert_no_transition(ticket, :state) do
+      assert_raises(ActiveRecord::RecordInvalid) do
+        ticket.update_attributes!(:state => 'abandoned')
+      end
     end
     assert_not_nil ticket.errors.on(:state)
-    assert ! ticket.reload.active?
-    assert ticket.open?
   end
 end
 

@@ -96,7 +96,7 @@ module ActiveRecord
           from = options[:from].to_s
           to = options[:to].to_s
           
-          guard = transitions.include?(:guard) ? options[:guard] : true
+          guard = options.include?(:guard) ? options[:guard] : true
 
           @transitions[from] ||= []
           @transitions[from] << Transition.new(from, to, guard)
@@ -213,7 +213,7 @@ module ActiveRecord
                   from,to = record.send("#{attr_name}_was"),state
                   record.errors.add(attr_name, conflicting_event % [from, to, event.name])
                 elsif transitions = event.transitions[state]
-                  if transition = transitions.find { |t| t.guard?(self) }
+                  if transition = transitions.find { |t| t.guard?(record) }
                     state = record.send("#{attr_name}=", transition.to_state)
                   else
                     record.errors.add(attr_name, guarded_event % [state, event.name])
