@@ -8,7 +8,9 @@ module ActiveRecord
       :bad_state => "should not have a state of %s",
       :bad_initial_state => "should not have an initial state of %s",
       :bad_transition => "cannot transition from %s state to %s state",
-      :bad_event => "cannot transition from %s state on %s event"
+      :bad_event => "cannot transition from missing %s state on %s event",
+      :guarded_event => "cannot transition from guarded %s state on %s event",
+      :conflicting_event => "already modified from %s to %s on %s event"
     }
     
     # class StateError < StandardError; end
@@ -66,12 +68,11 @@ module ActiveRecord
             @transitions[from][transition.to_state] ||= []
             @transitions[from][transition.to_state] << transition
           end
-          # puts "<<<<< @transitions[#{from.inspect}]=#{@transitions[from]}"
         end
       end
       
       class Event
-        attr_reader :transitions, :column_name
+        attr_reader :name, :transitions, :column_name
         
         def initialize(name, model, column_name, &block)
           @name = name.to_s
@@ -87,8 +88,8 @@ module ActiveRecord
           
           self.instance_eval(&block) if block_given?
 
-          @model.class_eval "def #{@name}; fire('#{@name}') && save; end", __FILE__, __LINE__
-          @model.class_eval "def #{@name}!; fire('#{@name}', true) && save!; end", __FILE__, __LINE__
+          @model.class_eval "def #{@name}; fire_event('#{@name}', :save); end", __FILE__, __LINE__
+          @model.class_eval "def #{@name}!; fire_event('#{@name}', :save!); end", __FILE__, __LINE__
         end
 
       protected
@@ -210,23 +211,19 @@ module ActiveRecord
         def self.included(base)
           base.extend ClassMethods
         end
-        
-        def fire(event_name, raise_error = false)
-          event = self.class.state_events[event_name]
-          column_name = event.column_name
-          from = self.send(column_name)
-          if transitions = event.transitions[from]
-            transition = transitions.find do |t|
-              t.guard?(self)
-            end
-            if transition
-              self.send("#{column_name}=", transition.to_state)
-            end
-          else
-            errors.add(column_name, ERRORS[:bad_event] % [from, event_name])
-          end
+
+        def event_for(attr_name)
+          @firing_event if @firing_event && @firing_event.column_name == attr_name
         end
         
+      protected
+        def fire_event(event_name, save_method)
+          @firing_event = self.class.state_events[event_name] || raise(ArgumentError, "unknown event: #{event_name}")
+          self.send(save_method)
+        ensure
+          @firing_event = nil
+        end
+
 #         def detect_transitions
 #           transitions = []
 #           if @current_event
@@ -273,14 +270,32 @@ module ActiveRecord
             bad_state = configuration[:message] || configuration[:bad_state] || ERRORS[:bad_state]
             bad_initial_state = configuration[:message] || configuration[:bad_initial_state] || ERRORS[:bad_initial_state]
             bad_transition = configuration[:message] || configuration[:bad_transition] || ERRORS[:bad_transition]
+            conflicting_event = configuration[:message] || configuration[:conflicting_event] || ERRORS[:conflicting_event]
+            guarded_event = configuration[:message] || configuration[:guarded_event] || ERRORS[:guarded_event]
+            bad_event = configuration[:message] || configuration[:bad_event] || ERRORS[:bad_event]
 
-            validates_each(attr_names.collect(&:to_s), configuration) do |record,attr_name,to|
+            validates_each(attr_names.collect(&:to_s), configuration) do |record,attr_name,state|
+              if event = record.event_for(attr_name)
+                if record.send("#{attr_name}_changed?")
+                  from,to = record.send("#{attr_name}_was"),state
+                  record.errors.add(attr_name, conflicting_event % [from, to, event.name])
+                elsif transitions = event.transitions[state]
+                  if transition = transitions.find { |t| t.guard?(self) }
+                    state = record.send("#{attr_name}=", transition.to_state)
+                  else
+                    record.errors.add(attr_name, guarded_event % [state, event.name])
+                  end
+                else
+                  record.errors.add(attr_name, bad_event % [state, event.name])
+                end
+              end
+              
               state_machine = state_machines[attr_name]
-              if state_machine.has_state?(to)
+              if state_machine.has_state?(state)
                 if record.new_record?
-                  record.errors.add(attr_name, bad_initial_state % to) unless state_machine.initial_state?(to)
+                  record.errors.add(attr_name, bad_initial_state % state) unless state_machine.initial_state?(state)
                 elsif record.send("#{attr_name}_changed?")
-                  from = record.send("#{attr_name}_was")
+                  from,to = record.send("#{attr_name}_was"),state
                   # TODO: implement guard support to be more selective?
                   record.errors.add(attr_name, bad_transition % [from, to]) unless state_machine.transition?(from, to)
                 end

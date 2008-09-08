@@ -182,7 +182,7 @@ class StateTest < Test::Unit::TestCase
   def test_should_transition
     ticket = create(TicketWithState)
     assert ticket.open?
-    assert ticket.ignore
+    assert ticket.ignore, ticket.errors.full_messages.to_sentence
     assert ticket.ignored?
     assert ticket.reload.ignored?
   end
