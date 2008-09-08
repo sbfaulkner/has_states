@@ -13,10 +13,6 @@ module ActiveRecord
       :conflicting_event => "already modified from %s to %s on %s event"
     }
     
-    # class StateError < StandardError; end
-    # class IllegalTransitionError < StateError; end
-    # class IllegalEventError < StateError; end
-    
     class StateMachine
       # TODO: add to list of reserved words to eliminate trouble-making state names
       RESERVED_WORDS = %w(new)
@@ -104,27 +100,6 @@ module ActiveRecord
 
           @transitions[from] ||= []
           @transitions[from] << Transition.new(from, to, guard)
-          
-          # model.class_eval <<-TRANSITION, __FILE__, __LINE__
-          #   def #{event}_transition(raise_error = false)
-          #     begin
-          #       @current_event = '#{event}'
-          #       to = self.class.transitions_for(@current_event)[#{column}]
-          #       self.#{column} = to unless to.nil?
-          #       if raise_error
-          #         save!
-          #       else
-          #         save
-          #       end
-          #     ensure
-          #       @current_event = nil
-          #     end
-          #   end
-          #   protected :#{event}_transition
-          # TRANSITION
-          # model.class_eval "def #{event}; self.#{event}_transition; end", __FILE__, __LINE__
-          # model.class_eval "def #{event}!; self.#{event}_transition(true); end", __FILE__, __LINE__
-        end
 
         class Transition
           attr_reader :to_state
@@ -160,18 +135,6 @@ module ActiveRecord
 
         StateMachine.new(self, state_column, state_names, &block)
 
-#         states.each do |name|
-#           state_machine[name] = {}
-#           class_eval "def #{name}?; #{column} == '#{name}'; end", __FILE__, __LINE__
-#           class_eval "named_scope :#{name}, :conditions => { :#{column} => '#{name}' }", __FILE__, __LINE__
-#           define_callbacks "before_exit_#{name}", "after_exit_#{name}", "before_enter_#{name}", "after_enter_#{name}"
-#         end
-#         
-#         class_eval <<-INITIALIZE, __FILE__, __LINE__
-#           before_validation_on_create { |record| record.#{column} = '#{initial_state}' if record.#{column}.blank? }
-#           validates_state_of :#{column}
-#         INITIALIZE
-# 
 #         class_eval <<-HOOK, __FILE__, __LINE__
 #           def detect_transitions
 #             transitions = []
@@ -224,29 +187,6 @@ module ActiveRecord
           @firing_event = nil
         end
 
-#         def detect_transitions
-#           transitions = []
-#           if @current_event
-#             self.class.transitions_for(@current_event)
-#             transitions << [self.#{column}] 
-#           transitions
-#         end
-#         
-#         def create_or_update_without_callbacks
-#           transitions = detect_transitions
-#           return super if transitions.empty?
-#           transitions.each do |from,to|
-#             callback("before_exit_#{from}") unless from.nil?
-#             callback("before_enter_#{to}")
-#           end
-#           result = super
-#           transitions.each do |from,to|
-#             callback("after_exit_#{from}") unless from.nil?
-#             callback("after_enter_#{to}")
-#           end
-#           result
-#         end
-        
         module ClassMethods
           def state_machines
             @state_machines ||= {}
@@ -256,14 +196,6 @@ module ActiveRecord
             @state_events ||= {}
           end
           
-#           def transitions
-#             @transitions ||= {}
-#           end
-#           
-#           def transitions_for(event)
-#             transitions[event] ||= {}
-#           end
-
           def validates_state_of(*attr_names)
             configuration = attr_names.extract_options!
             
