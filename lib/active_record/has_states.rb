@@ -60,9 +60,13 @@ module ActiveRecord
       
     protected
       def event(event_name, &block)
-        Event.new(event_name, @model, @column_name, &block).transitions.each do |from,to|
-          @transitions[from] ||= []
-          @transitions[from] << to
+        Event.new(event_name, @model, @column_name, &block).transitions.each do |from,from_transitions|
+          @transitions[from] ||= {}
+          from_transitions.each do |transition|
+            @transitions[from][transition.to_state] ||= []
+            @transitions[from][transition.to_state] << transition
+          end
+          # puts "<<<<< @transitions[#{from.inspect}]=#{@transitions[from]}"
         end
       end
       
@@ -88,14 +92,17 @@ module ActiveRecord
         end
 
       protected
-        def transition(transitions)
-          transitions.each do |from,to|
-            from = from.to_s
-            to = to.to_s
+        def transition(options)
+          raise(ArgumentError, "missing from state") unless options.include?(:from)
+          raise(ArgumentError, "missing to state") unless options.include?(:to)
+          
+          from = options[:from].to_s
+          to = options[:to].to_s
+          
+          guard = transitions.include?(:guard) ? options[:guard] : true
 
-            raise ArgumentError, "duplicate transition from #{from} to #{to}" if @transitions.include?(from)
-            @transitions[from] = to
-          end
+          @transitions[from] ||= []
+          @transitions[from] << Transition.new(from, to, guard)
           
           # model.class_eval <<-TRANSITION, __FILE__, __LINE__
           #   def #{event}_transition(raise_error = false)
@@ -116,6 +123,29 @@ module ActiveRecord
           # TRANSITION
           # model.class_eval "def #{event}; self.#{event}_transition; end", __FILE__, __LINE__
           # model.class_eval "def #{event}!; self.#{event}_transition(true); end", __FILE__, __LINE__
+        end
+
+        class Transition
+          attr_reader :to_state
+          
+          def initialize(from_state, to_state, guard)
+            @from_state = from_state
+            @to_state = to_state
+            @guard = guard
+          end
+          
+          def guard?(record)
+            case @guard
+            when Symbol
+              record.send(@guard)
+            when String
+              record.instance_eval(@guard)
+            when Proc, Method
+              @guard.call(record)
+            else
+              @guard
+            end
+          end
         end
       end
     end
@@ -185,8 +215,13 @@ module ActiveRecord
           event = self.class.state_events[event_name]
           column_name = event.column_name
           from = self.send(column_name)
-          if to = event.transitions[from]
-            self.send("#{column_name}=", to)
+          if transitions = event.transitions[from]
+            transition = transitions.find do |t|
+              t.guard?(self)
+            end
+            if transition
+              self.send("#{column_name}=", transition.to_state)
+            end
           else
             errors.add(column_name, ERRORS[:bad_event] % [from, event_name])
           end

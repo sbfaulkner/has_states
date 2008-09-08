@@ -60,19 +60,19 @@ class Ticket < ActiveRecord::Base
   validates_presence_of :problem
 end
 
-class TicketWithState < Ticket 
+class TicketWithState < Ticket
   has_states :open, :ignored, :active, :abandoned, :resolved do
     event :ignore do
-      transition :open => :ignored
+      transition :from => :open, :to => :ignored
     end
     event :activate do
-      transition :open => :active
+      transition :from => :open, :to => :active
     end
     event :abandon do
-      transition :active => :abandoned
+      transition :from => :active, :to => :abandoned
     end
     event :resolve do
-      transition :active => :resolved
+      transition :from => :active, :to => :resolved
     end
   end
 end
@@ -80,10 +80,10 @@ end
 class TicketWithOtherState < Ticket
   has_states :unassigned, :assigned, :in => :other_state do
     event :assign do
-      transition :unassigned => :assigned
+      transition :from => :unassigned, :to => :assigned
     end
     event :unassign do
-      transition :assigned => :unassigned
+      transition :from => :assigned, :to => :unassigned
     end
   end
 end
@@ -91,24 +91,24 @@ end
 class TicketWithConcurrentStates < Ticket
   has_states :open, :ignored, :active, :abandoned, :resolved do
     event :ignore do
-      transition :open => :ignored
+      transition :from => :open, :to => :ignored
     end
     event :activate do
-      transition :open => :active
+      transition :from => :open, :to => :active
     end
     event :abandon do
-      transition :active => :abandoned
+      transition :from => :active, :to => :abandoned
     end
     event :resolve do
-      transition :active => :resolved
+      transition :from => :active, :to => :resolved
     end
   end
   has_states :unassigned, :assigned, :in => :other_state do
     event :assign do
-      transition :unassigned => :assigned
+      transition :from => :unassigned, :to => :assigned
     end
     event :unassign do
-      transition :assigned => :unassigned
+      transition :from => :assigned, :to => :unassigned
     end
   end
 end
@@ -138,6 +138,25 @@ class StateTest < Test::Unit::TestCase
     teardown_db
   end
 
+  def test_should_require_unique_states
+    assert_raises(ArgumentError) do
+      Class.new(ActiveRecord::Base) do
+        has_states :duplicate, :duplicate
+      end
+    end
+  end
+
+  def test_should_require_unique_events
+    assert_raises(ArgumentError) do
+      Class.new(ActiveRecord::Base) do
+        has_states :one, :two, :three do
+          event :duplicate
+          event :duplicate
+        end
+      end
+    end
+  end
+  
   def test_should_create_with_state
     ticket = create(TicketWithState)
     assert_not_nil ticket
