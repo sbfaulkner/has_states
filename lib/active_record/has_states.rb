@@ -279,7 +279,7 @@ module ActiveRecord
               if state_machine.has_state?(to)
                 if record.new_record?
                   record.errors.add(attr_name, bad_initial_state % to) unless state_machine.initial_state?(to)
-                else
+                elsif record.send("#{attr_name}_changed?")
                   from = record.send("#{attr_name}_was")
                   # TODO: implement guard support to be more selective?
                   record.errors.add(attr_name, bad_transition % [from, to]) unless state_machine.transition?(from, to)
