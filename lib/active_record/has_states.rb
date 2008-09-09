@@ -74,7 +74,7 @@ module ActiveRecord
       end
       
     protected
-      def event(event_name, &block)
+      def on(event_name, &block)
         Event.new(event_name, @model, @column_name, &block).transitions.each do |from,from_transitions|
           @transitions[from] ||= {}
           from_transitions.each do |transition|
@@ -107,16 +107,15 @@ module ActiveRecord
 
       protected
         def transition(options)
-          raise(ArgumentError, "missing from state") unless options.include?(:from)
-          raise(ArgumentError, "missing to state") unless options.include?(:to)
-          
-          from = options[:from].to_s
-          to = options[:to].to_s
-          
-          guard = options.include?(:guard) ? options[:guard] : true
+          guard = options.delete(:if) || true
 
-          @transitions[from] ||= []
-          @transitions[from] << Transition.new(from, to, guard)
+          options.each do |key,value|
+            from = key.to_s
+            to = value.to_s
+
+            @transitions[from] ||= []
+            @transitions[from] << Transition.new(from, to, guard)
+          end
         end
 
         class Transition

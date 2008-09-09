@@ -86,62 +86,60 @@ end
 
 class TicketWithState < Ticket
   has_states :open, :ignored, :active, :abandoned, :resolved do
-    event :ignore do
-      transition :from => :open, :to => :ignored
+    on :ignore do
+      transition :open => :ignored
     end
-    event :activate do
-      transition :from => :open, :to => :active
+    on :activate do
+      transition :open => :active
     end
-    event :abandon do
-      transition :from => :active, :to => :abandoned
+    on :abandon do
+      transition :active => :abandoned
     end
-    event :resolve do
-      transition :from => :active, :to => :resolved
+    on :resolve do
+      transition :active => :resolved
     end
-    event :reactivate do
-      transition :from => :resolved, :to => :active
-      transition :from => :abandoned, :to => :active
+    on :reactivate do
+      transition :resolved => :active, :abandoned => :active
     end
   end
 end
 
 class TicketWithOtherState < Ticket
   has_states :unassigned, :assigned, :in => :other_state do
-    event :assign do
-      transition :from => :unassigned, :to => :assigned
+    on :assign do
+      transition :unassigned => :assigned
     end
-    event :unassign do
-      transition :from => :assigned, :to => :unassigned
+    on :unassign do
+      transition :assigned => :unassigned
     end
   end
 end
 
 class TicketWithConcurrentStates < Ticket
   has_states :open, :ignored, :active, :abandoned, :resolved do
-    event :ignore do
-      transition :from => :open, :to => :ignored
+    on :ignore do
+      transition :open => :ignored
     end
-    event :activate do
-      transition :from => :open, :to => :active
+    on :activate do
+      transition :open => :active
     end
-    event :abandon do
-      transition :from => :active, :to => :abandoned
+    on :abandon do
+      transition :active => :abandoned
     end
-    event :resolve do
-      transition :from => :active, :to => :resolved
+    on :resolve do
+      transition :active => :resolved
     end
-    event :reactivate do
-      transition :from => :resolved, :to => :active
-      transition :from => :abandoned, :to => :active
+    on :reactivate do
+      transition :resolved => :active, :abandoned => :active
     end
   end
 
   has_states :unassigned, :assigned, :in => :other_state do
-    event :assign do
-      transition :from => :unassigned, :to => :assigned
+    on :assign do
+      transition :unassigned => :assigned
     end
-    event :unassign do
-      transition :from => :assigned, :to => :unassigned
+    on :unassign do
+      transition :assigned => :unassigned
     end
   end
 end
@@ -149,10 +147,10 @@ end
 class TicketWithGuardedState < Ticket
   attr_accessor :first, :second, :third
   has_states :zero, :one, :two, :three do
-    event :test do
-      transition :from => :zero, :to => :one, :guard => Proc.new { |record| record.first? }
-      transition :from => :zero, :to => :two, :guard => :second?
-      transition :from => :zero, :to => :three, :guard => "third?"
+    on :test do
+      transition :zero => :one, :if => Proc.new { |record| record.first? }
+      transition :zero => :two, :if => :second?
+      transition :zero => :three, :if => "third?"
     end
   end
   def first?
@@ -170,21 +168,20 @@ class TicketWithCallbacks < Ticket
   attr_reader :callbacks_made
   
   has_states :open, :ignored, :active, :abandoned, :resolved do
-    event :ignore do
-      transition :from => :open, :to => :ignored
+    on :ignore do
+      transition :open => :ignored
     end
-    event :activate do
-      transition :from => :open, :to => :active
+    on :activate do
+      transition :open => :active
     end
-    event :abandon do
-      transition :from => :active, :to => :abandoned
+    on :abandon do
+      transition :active => :abandoned
     end
-    event :resolve do
-      transition :from => :active, :to => :resolved
+    on :resolve do
+      transition :active => :resolved
     end
-    event :reactivate do
-      transition :from => :resolved, :to => :active
-      transition :from => :abandoned, :to => :active
+    on :reactivate do
+      transition :resolved => :active, :abandoned => :active
     end
   end
 
@@ -258,8 +255,8 @@ class StateTest < Test::Unit::TestCase
     assert_raises(ArgumentError) do
       Class.new(ActiveRecord::Base) do
         has_states :one, :two, :three do
-          event :duplicate
-          event :duplicate
+          on :duplicate
+          on :duplicate
         end
       end
     end
