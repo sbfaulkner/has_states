@@ -16,17 +16,17 @@ This is an attempt to make it work (the way I thought it should).
     # models/user.rb
     class User < ActiveRecord::Base
       has_states :signed_up, :unverified, :verified, :disabled do
-        event :invite do
-          transition :from => :signed_up, :to => :unverified
+        on :invite do
+          transition :signed_up => :unverified
         end
-        event :verify do
-          transition :from => :unverified, :to => :verified
+        on :verify do
+          transition :unverified => :verified
         end
-        event :disabled do
-          transition :from => :verified, :to => :disabled
+        on :disabled do
+          transition :verified => :disabled
         end
-        event :enable do
-          transition :from => :disabled, :to => :verified
+        on :enable do
+          transition :disabled => :verified
         end
       end
 
