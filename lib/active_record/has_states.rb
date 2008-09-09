@@ -159,16 +159,28 @@ module ActiveRecord
           base.extend ClassMethods
         end
 
-        def event_for(attr_name)
-          @firing_event if @firing_event && @firing_event.column_name == attr_name
+        def event_error_for(attr_name)
+          @event_error if @event_error && @event_error.last.column_name == attr_name
         end
         
       protected
         def fire_event(event_name, save_method)
-          @firing_event = self.class.state_events[event_name] || raise(ArgumentError, "unknown event: #{event_name}")
+          event = self.class.state_events[event_name] || raise(ArgumentError, "unknown event: #{event_name}")
+          attr_name = event.column_name
+          if send("#{attr_name}_changed?")
+            @event_error = [ :conflicting_event, event ]
+          elsif transitions = event.transitions[state]
+            if transition = transitions.find { |t| t.guard?(self) }
+              state = send("#{attr_name}=", transition.to_state)
+            else
+              @event_error = [ :guarded_event, event ]
+            end
+          else
+            @event_error = [ :bad_event, event ]
+          end
           self.send(save_method)
         ensure
-          @firing_event = nil
+          @event_error = nil
         end
 
         module ClassMethods
@@ -191,19 +203,15 @@ module ActiveRecord
             bad_event = configuration[:message] || configuration[:bad_event] || ERRORS[:bad_event]
 
             validates_each(attr_names.collect(&:to_s), configuration) do |record,attr_name,state|
-              if event = record.event_for(attr_name)
-                if record.send("#{attr_name}_changed?")
-                  from,to = record.send("#{attr_name}_was"),state
-                  record.errors.add(attr_name, conflicting_event % [from, to, event.name])
-                elsif transitions = event.transitions[state]
-                  if transition = transitions.find { |t| t.guard?(record) }
-                    state = record.send("#{attr_name}=", transition.to_state)
-                  else
-                    record.errors.add(attr_name, guarded_event % [state, event.name])
-                  end
-                else
-                  record.errors.add(attr_name, bad_event % [state, event.name])
-                end
+              error,event = record.event_error_for(attr_name)
+              case error
+              when :conflicting_event
+                from = record.send("#{attr_name}_was")
+                record.errors.add(attr_name, conflicting_event % [from, state, event.name])
+              when :guarded_event
+                record.errors.add(attr_name, guarded_event % [state, event.name])
+              when :bad_event
+                record.errors.add(attr_name, bad_event % [state, event.name])
               end
               
               state_machine = state_machines[attr_name]
