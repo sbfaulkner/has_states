@@ -168,7 +168,7 @@ module ActiveRecord
           attr_name = event.column_name
           if send("#{attr_name}_changed?")
             @event_error = [ :conflicting_event, event ]
-          elsif transitions = event.transitions[state]
+          elsif transitions = event.transitions[send("#{attr_name}")]
             if transition = transitions.find { |t| t.guard?(self) }
               state = send("#{attr_name}=", transition.to_state)
             else
