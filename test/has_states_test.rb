@@ -292,6 +292,13 @@ class StateTest < Test::Unit::TestCase
     end
   end
   
+  def test_should_transition_other_state
+    ticket = create(TicketWithOtherState)
+    assert_transition(ticket, :other_state, :unassigned, :assigned) do
+      assert ticket.assign, ticket.errors.full_messages.to_sentence
+    end
+  end
+  
   def test_should_prevent_invalid_transition
     ticket = create(TicketWithState)
     assert_no_transition(ticket, :state) do
